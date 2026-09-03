@@ -1,6 +1,20 @@
 (() => {
   'use strict';
 
+  /*
+   * GLOBAL SITE CONTROLLER
+   *
+   * Responsibilities:
+   * - navigation menu
+   * - active navigation state
+   * - previous/next page controls
+   * - footer year
+   * - persistent music player
+   *
+   * The player is initialized exactly once. router.js only calls
+   * SakshiSite.onPageSwap() after replacing #app-main.
+   */
+
   const PAGES = [
     ['index.html', 'Home'],
     ['about.html', 'About'],
@@ -21,30 +35,58 @@
     parent.querySelector(selector);
 
   const formatTime = seconds => {
-    seconds = Math.max(0, Math.floor(Number(seconds) || 0));
-    const minutes = Math.floor(seconds / 60);
-    const secs = String(seconds % 60).padStart(2, '0');
-    return `${minutes}:${secs}`;
+    const value = Number(seconds);
+
+    if (!Number.isFinite(value) || value < 0) {
+      return '0:00';
+    }
+
+    const total = Math.floor(value);
+    const minutes = Math.floor(total / 60);
+    const secondsPart = String(total % 60).padStart(2, '0');
+
+    return `${minutes}:${secondsPart}`;
+  };
+
+  const getCurrentPage = () => {
+    const pathname = window.location.pathname;
+    const file = pathname.split('/').pop();
+
+    return file || 'index.html';
   };
 
   function initNavToggle() {
     const toggle = $('.nav-toggle');
     const menu = $('.site-nav ul');
 
-    if (!toggle || !menu) return;
+    if (!toggle || !menu || toggle.dataset.initialized === 'true') {
+      return;
+    }
+
+    toggle.dataset.initialized = 'true';
 
     toggle.addEventListener('click', () => {
       const open = menu.classList.toggle('open');
       toggle.setAttribute('aria-expanded', String(open));
     });
+
+    menu.addEventListener('click', event => {
+      const link = event.target.closest('a');
+
+      if (link) {
+        menu.classList.remove('open');
+        toggle.setAttribute('aria-expanded', 'false');
+      }
+    });
   }
 
   function updatePageChrome() {
-    const currentPage =
-      location.pathname.split('/').pop() || 'index.html';
+    const currentPage = getCurrentPage();
 
     document.querySelectorAll('.site-nav a').forEach(link => {
-      if (link.getAttribute('href') === currentPage) {
+      const href = link.getAttribute('href');
+
+      if (href === currentPage) {
         link.setAttribute('aria-current', 'page');
       } else {
         link.removeAttribute('aria-current');
@@ -52,16 +94,22 @@
     });
 
     const main = $('#app-main');
-    if (!main) return;
 
-    main
-      .querySelectorAll('.page-navigation')
-      .forEach(el => el.remove());
+    if (!main) {
+      return;
+    }
 
-    const pageIndex =
-      PAGES.findIndex(page => page[0] === currentPage);
+    main.querySelectorAll('.page-navigation').forEach(element => {
+      element.remove();
+    });
 
-    if (pageIndex === -1) return;
+    const pageIndex = PAGES.findIndex(
+      page => page[0] === currentPage
+    );
+
+    if (pageIndex === -1) {
+      return;
+    }
 
     const previous = PAGES[pageIndex - 1];
     const next = PAGES[pageIndex + 1];
@@ -93,13 +141,19 @@
   }
 
   function initYear() {
+    const year = String(new Date().getFullYear());
+
     document.querySelectorAll('[data-year]').forEach(element => {
-      element.textContent = new Date().getFullYear();
+      element.textContent = year;
     });
   }
 
-  function initMusicPlayer() {
+  function createMusicPlayer() {
     const container = $('.music-player');
+
+    if (!container) {
+      return null;
+    }
 
     const tracks =
       window.SAKSHI &&
@@ -107,48 +161,27 @@
         ? window.SAKSHI.music
         : [];
 
-    if (!container || !tracks.length) {
-      console.warn('Music player: no tracks found.');
-      return;
+    if (!tracks.length) {
+      console.warn('Music player: SAKSHI.music is empty.');
+      return null;
     }
 
-    /* =========================
-       AUDIO
-       ========================= */
-
     const audio = new Audio();
-    audio.preload = 'auto';
+    audio.preload = 'metadata';
+    audio.controls = false;
 
-    const savedVolume =
-      Number(localStorage.getItem(STORAGE.volume));
+    const storedVolume = Number(
+      localStorage.getItem(STORAGE.volume)
+    );
 
     audio.volume =
-      Number.isFinite(savedVolume)
-        ? Math.min(Math.max(savedVolume, 0), 1)
+      Number.isFinite(storedVolume)
+        ? Math.min(Math.max(storedVolume, 0), 1)
         : 0.72;
 
-    audio.addEventListener('error', () => {
-      console.error('MUSIC ERROR:', {
-        src: audio.src,
-        code: audio.error?.code,
-        message: audio.error?.message
-      });
-    });
-
-    audio.addEventListener('loadeddata', () => {
-      console.log('Music loaded:', audio.src);
-    });
-
-    audio.addEventListener('canplay', () => {
-      console.log('Music ready:', audio.src);
-    });
-
-    /* =========================
-       STATE
-       ========================= */
-
-    let index =
-      Number(localStorage.getItem(STORAGE.track));
+    let index = Number(
+      localStorage.getItem(STORAGE.track)
+    );
 
     if (
       !Number.isInteger(index) ||
@@ -158,20 +191,22 @@
       index = 0;
     }
 
-    let savedTime =
-      Number(localStorage.getItem(STORAGE.time)) || 0;
+    let savedTime = Number(
+      localStorage.getItem(STORAGE.time)
+    );
 
-    /* =========================
-       PLAYER UI
-       ========================= */
+    if (
+      !Number.isFinite(savedTime) ||
+      savedTime < 0
+    ) {
+      savedTime = 0;
+    }
+
+    let playerDestroyed = false;
 
     container.innerHTML = `
       <div class="player-inner">
-
-        <img
-          class="track-art"
-          alt="Track artwork"
-        >
+        <img class="track-art" alt="" decoding="async">
 
         <button
           class="track-info"
@@ -185,28 +220,10 @@
         </button>
 
         <div class="player-controls">
-
-          <button
-            class="prev"
-            type="button"
-            aria-label="Previous song"
-          >◀</button>
-
-          <button
-            class="play"
-            type="button"
-            aria-label="Play"
-          >▶</button>
-
-          <button
-            class="next"
-            type="button"
-            aria-label="Next song"
-          >▶</button>
-
+          <button class="prev" type="button" aria-label="Previous song">◀</button>
+          <button class="play" type="button" aria-label="Play">▶</button>
+          <button class="next" type="button" aria-label="Next song">▶</button>
         </div>
-
-        <span class="time current-time">0:00</span>
 
         <input
           class="progress"
@@ -218,6 +235,7 @@
           aria-label="Song progress"
         >
 
+        <span class="time current-time">0:00</span>
         <span class="time duration">0:00</span>
 
         <button
@@ -225,36 +243,30 @@
           type="button"
           aria-label="Open playlist"
         >☰</button>
-
       </div>
 
       <div class="track-menu" aria-hidden="true">
-
         <div class="track-menu-inner">
-
           <div class="menu-head">
             <b>HER SOUNDTRACK</b>
-
             <button
               class="close-menu"
               type="button"
               aria-label="Close playlist"
             >×</button>
           </div>
-
           <div class="track-list"></div>
-
         </div>
-
       </div>
     `;
 
     const art = $('.track-art', container);
+    const info = $('.track-info', container);
     const title = $('.track-title', container);
     const artist = $('.track-artist', container);
 
-    const play = $('.play', container);
     const prev = $('.prev', container);
+    const play = $('.play', container);
     const next = $('.next', container);
 
     const progress = $('.progress', container);
@@ -262,70 +274,68 @@
     const duration = $('.duration', container);
 
     const queue = $('.queue', container);
-    const info = $('.track-info', container);
-
     const menu = $('.track-menu', container);
-    const closeMenu = $('.close-menu', container);
+    const closeMenuButton = $('.close-menu', container);
     const trackList = $('.track-list', container);
 
-    /* =========================
-       STATE HELPERS
-       ========================= */
+    function isValidDuration() {
+      return Number.isFinite(audio.duration) && audio.duration > 0;
+    }
 
     function saveState() {
-      localStorage.setItem(
-        STORAGE.track,
-        String(index)
-      );
+      if (playerDestroyed) {
+        return;
+      }
 
-      localStorage.setItem(
-        STORAGE.time,
-        String(
-          Number.isFinite(audio.currentTime)
-            ? audio.currentTime
-            : 0
-        )
-      );
-
-      localStorage.setItem(
-        STORAGE.volume,
-        String(audio.volume)
-      );
+      try {
+        localStorage.setItem(STORAGE.track, String(index));
+        localStorage.setItem(
+          STORAGE.time,
+          String(
+            Number.isFinite(audio.currentTime)
+              ? audio.currentTime
+              : 0
+          )
+        );
+        localStorage.setItem(
+          STORAGE.volume,
+          String(audio.volume)
+        );
+      } catch (error) {
+        console.warn('Could not save player state:', error);
+      }
     }
 
     function updatePlayButton() {
-      const playing = !audio.paused;
+      const playing = !audio.paused && !audio.ended;
 
       play.textContent = playing ? 'Ⅱ' : '▶';
-
       play.setAttribute(
         'aria-label',
         playing ? 'Pause' : 'Play'
       );
     }
 
-    /* =========================
-       PLAYLIST
-       ========================= */
-
     function renderPlaylist() {
-      trackList.innerHTML = '';
+      trackList.replaceChildren();
 
       tracks.forEach((track, trackIndex) => {
         const button = document.createElement('button');
+        const name = document.createElement('b');
+        const performer = document.createElement('small');
+        const text = document.createElement('span');
 
         button.type = 'button';
         button.className =
-          `track-item ${
-            trackIndex === index ? 'active' : ''
-          }`;
+          trackIndex === index
+            ? 'track-item active'
+            : 'track-item';
 
-        button.innerHTML = `
-          <span>
-            <b>${track.title || 'Untitled'}</b>
-            <small>${track.artist || ''}</small>
-          </span>
-        `;
+        name.textContent = track.title || 'Untitled';
+        performer.textContent = track.artist || 'Unknown artist';
+
+        text.append(name, performer);
+        button.append(text);
 
         button.addEventListener('click', () => {
           loadTrack(trackIndex, true);
@@ -346,111 +356,110 @@
       menu.setAttribute('aria-hidden', 'true');
     }
 
-    queue.addEventListener('click', openPlaylist);
-    info.addEventListener('click', openPlaylist);
-    closeMenu.addEventListener('click', closePlaylist);
+    function setArtwork(track) {
+      if (!track.art) {
+        art.removeAttribute('src');
+        art.alt = '';
+        return;
+      }
 
-    /* =========================
-       LOAD TRACK
-       ========================= */
+      try {
+        art.src = new URL(
+          track.art,
+          document.baseURI
+        ).href;
+        art.alt = `${track.title || 'Track'} artwork`;
+      } catch (error) {
+        art.removeAttribute('src');
+        art.alt = '';
+        console.warn('Invalid artwork URL:', track.art, error);
+      }
+    }
 
     function loadTrack(trackIndex, autoplay = false) {
+      if (playerDestroyed) {
+        return;
+      }
+
       index =
-        (trackIndex + tracks.length) %
-        tracks.length;
+        (trackIndex + tracks.length) % tracks.length;
 
       const track = tracks[index];
 
       if (!track || !track.src) {
-        console.error(
-          'Invalid music track:',
-          track
-        );
+        console.error('Invalid music track:', track);
         return;
       }
 
       audio.pause();
 
-      title.textContent =
-        track.title || 'Untitled';
+      title.textContent = track.title || 'Untitled';
+      artist.textContent = track.artist || 'Unknown artist';
 
-      artist.textContent =
-        track.artist || 'Unknown artist';
+      setArtwork(track);
 
-      if (track.art) {
-        art.src = new URL(
-          track.art,
+      let source;
+
+      try {
+        source = new URL(
+          track.src,
           document.baseURI
         ).href;
-      } else {
-        art.removeAttribute('src');
+      } catch (error) {
+        console.error('Invalid music URL:', track.src, error);
+        return;
       }
 
-      /*
-       * GitHub Pages-safe URL.
-       */
-      const source = new URL(
-        track.src,
-        document.baseURI
-      ).href;
-
-      console.log(
-        'Loading music:',
-        source
-      );
-
-      audio.src = source;
-      audio.load();
-
-      progress.value = 0;
+      progress.value = '0';
       currentTime.textContent = '0:00';
       duration.textContent = '0:00';
 
       /*
-       * Only restore saved position for the
-       * previously selected track.
+       * Only restore the saved time for the track that was
+       * actually playing when the page was previously closed.
        */
+      const savedTrack = Number(
+        localStorage.getItem(STORAGE.track)
+      );
+
       if (
-        index ===
-        Number(
-          localStorage.getItem(STORAGE.track)
-        )
+        Number.isInteger(savedTrack) &&
+        savedTrack === index
       ) {
+        const storedTime = Number(
+          localStorage.getItem(STORAGE.time)
+        );
+
         savedTime =
-          Number(
-            localStorage.getItem(STORAGE.time)
-          ) || 0;
+          Number.isFinite(storedTime) && storedTime >= 0
+            ? storedTime
+            : 0;
       } else {
         savedTime = 0;
       }
 
-      localStorage.setItem(
-        STORAGE.track,
-        String(index)
-      );
+      localStorage.setItem(STORAGE.track, String(index));
 
-      updatePlayButton();
+      audio.src = source;
+      audio.load();
+
       renderPlaylist();
+      updatePlayButton();
+
+      console.log('Music source:', source);
 
       if (autoplay) {
         playTrack();
       }
     }
 
-    /* =========================
-       PLAY
-       ========================= */
-
     async function playTrack() {
+      if (playerDestroyed) {
+        return;
+      }
+
       try {
-        /*
-         * Never seek to a hard-coded snippet position.
-         * This makes the player reliable on mobile.
-         */
-        if (
-          Number.isFinite(audio.duration) &&
-          audio.duration > 0
-        ) {
+        if (isValidDuration()) {
           if (
             !Number.isFinite(savedTime) ||
             savedTime < 0 ||
@@ -459,30 +468,29 @@
             savedTime = 0;
           }
 
-          audio.currentTime = savedTime;
+          if (Math.abs(audio.currentTime - savedTime) > 0.25) {
+            audio.currentTime = savedTime;
+          }
         }
 
         await audio.play();
 
         updatePlayButton();
         saveState();
-
       } catch (error) {
-        console.error(
-          'Music playback failed:',
-          error
-        );
-
         updatePlayButton();
+
+        console.error('Music playback failed:', {
+          error,
+          name: error?.name,
+          message: error?.message,
+          source: audio.currentSrc || audio.src
+        });
       }
     }
 
-    /* =========================
-       CONTROLS
-       ========================= */
-
     play.addEventListener('click', () => {
-      if (audio.paused) {
+      if (audio.paused || audio.ended) {
         playTrack();
       } else {
         audio.pause();
@@ -497,21 +505,34 @@
       loadTrack(index + 1, true);
     });
 
-    /* =========================
-       PROGRESS
-       ========================= */
+    info.addEventListener('click', openPlaylist);
+    queue.addEventListener('click', openPlaylist);
+    closeMenuButton.addEventListener('click', closePlaylist);
+
+    menu.addEventListener('click', event => {
+      if (event.target === menu) {
+        closePlaylist();
+      }
+    });
+
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        closePlaylist();
+      }
+    });
 
     progress.addEventListener('input', () => {
-      if (
-        !Number.isFinite(audio.duration) ||
-        audio.duration <= 0
-      ) {
+      if (!isValidDuration()) {
         return;
       }
 
+      const percentage = Number(progress.value) / 100;
+
       audio.currentTime =
-        (Number(progress.value) / 100) *
-        audio.duration;
+        Math.min(
+          Math.max(percentage, 0),
+          1
+        ) * audio.duration;
 
       savedTime = audio.currentTime;
       currentTime.textContent =
@@ -520,164 +541,135 @@
       saveState();
     });
 
-    /* =========================
-       AUDIO EVENTS
-       ========================= */
-
-    audio.addEventListener(
-      'loadedmetadata',
-      () => {
-        if (
-          !Number.isFinite(audio.duration) ||
-          audio.duration <= 0
-        ) {
-          console.error(
-            'Music has no valid duration:',
-            audio.src
-          );
-          return;
-        }
-
-        duration.textContent =
-          formatTime(audio.duration);
-
-        if (
-          Number.isFinite(savedTime) &&
-          savedTime >= 0 &&
-          savedTime < audio.duration
-        ) {
-          audio.currentTime = savedTime;
-        } else {
-          savedTime = 0;
-          audio.currentTime = 0;
-        }
+    audio.addEventListener('loadedmetadata', () => {
+      if (!isValidDuration()) {
+        console.error(
+          'Audio loaded without a valid duration:',
+          audio.currentSrc || audio.src
+        );
+        return;
       }
-    );
 
-    audio.addEventListener(
-      'timeupdate',
-      () => {
-        if (
-          !Number.isFinite(audio.duration) ||
-          audio.duration <= 0
-        ) {
-          return;
-        }
+      duration.textContent = formatTime(audio.duration);
 
-        progress.value =
-          (audio.currentTime /
-            audio.duration) *
-          100;
-
-        currentTime.textContent =
-          formatTime(audio.currentTime);
-
-        savedTime = audio.currentTime;
+      if (
+        Number.isFinite(savedTime) &&
+        savedTime >= 0 &&
+        savedTime < audio.duration
+      ) {
+        audio.currentTime = savedTime;
+      } else {
+        savedTime = 0;
+        audio.currentTime = 0;
       }
-    );
+    });
 
-    audio.addEventListener(
-      'play',
-      updatePlayButton
-    );
-
-    audio.addEventListener(
-      'pause',
-      () => {
-        updatePlayButton();
-        saveState();
+    audio.addEventListener('timeupdate', () => {
+      if (!isValidDuration()) {
+        return;
       }
-    );
 
-    audio.addEventListener(
-      'ended',
-      () => {
-        saveState();
+      progress.value = String(
+        (audio.currentTime / audio.duration) * 100
+      );
 
-        /*
-         * Move to the next song.
-         */
-        loadTrack(index + 1, true);
-      }
-    );
+      currentTime.textContent =
+        formatTime(audio.currentTime);
 
-    /* =========================
-       INITIALIZE
-       ========================= */
+      savedTime = audio.currentTime;
+    });
+
+    audio.addEventListener('play', updatePlayButton);
+
+    audio.addEventListener('pause', () => {
+      updatePlayButton();
+      saveState();
+    });
+
+    audio.addEventListener('volumechange', saveState);
+
+    audio.addEventListener('ended', () => {
+      savedTime = 0;
+      localStorage.setItem(STORAGE.time, '0');
+      loadTrack(index + 1, true);
+    });
+
+    audio.addEventListener('error', () => {
+      const mediaError = audio.error;
+
+      console.error('MUSIC ERROR:', {
+        code: mediaError?.code,
+        message: mediaError?.message,
+        source: audio.currentSrc || audio.src
+      });
+
+      updatePlayButton();
+    });
+
+    audio.addEventListener('stalled', () => {
+      console.warn(
+        'Music download stalled:',
+        audio.currentSrc || audio.src
+      );
+    });
+
+    audio.addEventListener('waiting', () => {
+      play.setAttribute('aria-label', 'Loading');
+    });
+
+    audio.addEventListener('canplay', updatePlayButton);
 
     loadTrack(index, false);
+
+    return {
+      audio,
+      loadTrack,
+      play: playTrack,
+      destroy() {
+        playerDestroyed = true;
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+      }
+    };
   }
 
-  /* =========================
-     ROUTER HOOK
-     ========================= */
+  let musicPlayer = null;
+
+  function initMusicPlayer() {
+    if (musicPlayer) {
+      return;
+    }
+
+    musicPlayer = createMusicPlayer();
+  }
 
   function updateAfterRoute() {
     updatePageChrome();
     initYear();
+    initNavToggle();
   }
-
-  /* =========================
-     START
-     ========================= */
 
   function init() {
     initNavToggle();
-    updatePageChrome();
-    initYear();
+    updateAfterRoute();
     initMusicPlayer();
-
-    window.addEventListener(
-      'popstate',
-      updateAfterRoute
-    );
-
-    document.addEventListener(
-      'click',
-      event => {
-        const link =
-          event.target.closest(
-            'a[href]'
-          );
-
-        if (!link) return;
-
-        const href =
-          link.getAttribute('href');
-
-        if (
-          !href ||
-          href.startsWith('#') ||
-          href.startsWith('http') ||
-          href.startsWith('mailto:')
-        ) {
-          return;
-        }
-
-        if (
-          PAGES.some(
-            page => page[0] === href
-          )
-        ) {
-          setTimeout(
-            updateAfterRoute,
-            0
-          );
-        }
-      }
-    );
   }
 
-  if (
-    document.readyState === 'loading'
-  ) {
-    document.addEventListener(
-      'DOMContentLoaded',
-      init,
-      { once: true }
-    );
+  /*
+   * router.js calls this after replacing #app-main.
+   * It intentionally does NOT recreate the music player.
+   */
+  window.SakshiSite = {
+    onPageSwap: updateAfterRoute,
+    getMusicPlayer: () => musicPlayer
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init, {
+      once: true
+    });
   } else {
     init();
   }
-
 })();
