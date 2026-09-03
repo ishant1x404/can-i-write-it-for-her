@@ -403,11 +403,10 @@
        * GitHub Pages URL.
        */
 
-      audio.src =
-        new URL(
-          track.src,
-          window.location.href
-        ).href;
+      audio.src = new URL(
+  track.src,
+  document.baseURI
+).href;
 
       audio.load();
 
