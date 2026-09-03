@@ -150,6 +150,14 @@
 
     const audio = new Audio();
 
+    audio.addEventListener('error', () => {
+  console.error('MUSIC ERROR:', {
+    src: audio.src,
+    code: audio.error?.code,
+    message: audio.error?.message
+  });
+});
+
     audio.preload = 'metadata';
 
     const savedVolume =
