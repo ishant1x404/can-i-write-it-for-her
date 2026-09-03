@@ -1,10 +1,6 @@
 (() => {
   'use strict';
 
-  /* ================================
-     GLOBAL SITE CONTROLLER
-     ================================ */
-
   const PAGES = [
     ['index.html', 'Home'],
     ['about.html', 'About'],
@@ -18,8 +14,7 @@
   const STORAGE = {
     track: 'sakshiTrackIndex',
     time: 'sakshiTrackTime',
-    volume: 'sakshiTrackVolume',
-    mode: 'sakshiPlayMode'
+    volume: 'sakshiTrackVolume'
   };
 
   const $ = (selector, parent = document) =>
@@ -27,38 +22,22 @@
 
   const formatTime = seconds => {
     seconds = Math.max(0, Math.floor(Number(seconds) || 0));
-
     const minutes = Math.floor(seconds / 60);
     const secs = String(seconds % 60).padStart(2, '0');
-
     return `${minutes}:${secs}`;
   };
-
-  /* ================================
-     NAV TOGGLE (runs once — the
-     button and menu live in the
-     shell, not in #app-main)
-     ================================ */
 
   function initNavToggle() {
     const toggle = $('.nav-toggle');
     const menu = $('.site-nav ul');
 
-    if (toggle && menu) {
-      toggle.addEventListener('click', () => {
-        const open = menu.classList.toggle('open');
-        toggle.setAttribute('aria-expanded', String(open));
-      });
-    }
-  }
+    if (!toggle || !menu) return;
 
-  /* ================================
-     PAGE CHROME
-     Active nav link + prev/next widget.
-     Re-run after every router swap since
-     the current page changes but the
-     script never re-executes.
-     ================================ */
+    toggle.addEventListener('click', () => {
+      const open = menu.classList.toggle('open');
+      toggle.setAttribute('aria-expanded', String(open));
+    });
+  }
 
   function updatePageChrome() {
     const currentPage =
@@ -75,8 +54,9 @@
     const main = $('#app-main');
     if (!main) return;
 
-    // Remove any prev/next widget left over from the previous page.
-    main.querySelectorAll('.page-navigation').forEach(el => el.remove());
+    main
+      .querySelectorAll('.page-navigation')
+      .forEach(el => el.remove());
 
     const pageIndex =
       PAGES.findIndex(page => page[0] === currentPage);
@@ -112,23 +92,11 @@
     main.appendChild(nav);
   }
 
-  /* ================================
-     YEAR
-     ================================ */
-
   function initYear() {
     document.querySelectorAll('[data-year]').forEach(element => {
       element.textContent = new Date().getFullYear();
     });
   }
-
-  /* ================================
-     MUSIC PLAYER
-     Runs exactly once, on true first
-     load. Never re-run on route swaps,
-     so the <audio> element (and its
-     playback) is never interrupted.
-     ================================ */
 
   function initMusicPlayer() {
     const container = $('.music-player');
@@ -144,21 +112,12 @@
       return;
     }
 
-    /*
-     * AUDIO ENGINE
-     */
+    /* =========================
+       AUDIO
+       ========================= */
 
     const audio = new Audio();
-
-    audio.addEventListener('error', () => {
-  console.error('MUSIC ERROR:', {
-    src: audio.src,
-    code: audio.error?.code,
-    message: audio.error?.message
-  });
-});
-
-    audio.preload = 'metadata';
+    audio.preload = 'auto';
 
     const savedVolume =
       Number(localStorage.getItem(STORAGE.volume));
@@ -168,9 +127,25 @@
         ? Math.min(Math.max(savedVolume, 0), 1)
         : 0.72;
 
-    /*
-     * STATE
-     */
+    audio.addEventListener('error', () => {
+      console.error('MUSIC ERROR:', {
+        src: audio.src,
+        code: audio.error?.code,
+        message: audio.error?.message
+      });
+    });
+
+    audio.addEventListener('loadeddata', () => {
+      console.log('Music loaded:', audio.src);
+    });
+
+    audio.addEventListener('canplay', () => {
+      console.log('Music ready:', audio.src);
+    });
+
+    /* =========================
+       STATE
+       ========================= */
 
     let index =
       Number(localStorage.getItem(STORAGE.track));
@@ -183,35 +158,12 @@
       index = 0;
     }
 
-    let resumeTime =
+    let savedTime =
       Number(localStorage.getItem(STORAGE.time)) || 0;
 
-    /*
-     * SNIPPET MODE
-     * Instagram-style: play a short highlighted
-     * window of each track (track.start → track.end)
-     * on a loop, instead of the whole song.
-     */
-
-    let snippetMode =
-      localStorage.getItem(STORAGE.mode) !== 'full';
-
-    let clipStart = 0;
-    let clipEnd = null;
-
-    function computeClip(track) {
-      const s = Number(track.start) || 0;
-      const e = Number(track.end);
-
-      return {
-        start: s,
-        end: Number.isFinite(e) && e > s ? e : null
-      };
-    }
-
-    /*
-     * PLAYER UI
-     */
+    /* =========================
+       PLAYER UI
+       ========================= */
 
     container.innerHTML = `
       <div class="player-inner">
@@ -254,9 +206,7 @@
 
         </div>
 
-        <span class="time current-time">
-          0:00
-        </span>
+        <span class="time current-time">0:00</span>
 
         <input
           class="progress"
@@ -268,14 +218,7 @@
           aria-label="Song progress"
         >
 
-        <span class="time duration">
-          0:00
-        </span>
-
-        <button
-          class="full-song-toggle"
-          type="button"
-        >Play full song</button>
+        <span class="time duration">0:00</span>
 
         <button
           class="queue"
@@ -285,10 +228,7 @@
 
       </div>
 
-      <div
-        class="track-menu"
-        aria-hidden="true"
-      >
+      <div class="track-menu" aria-hidden="true">
 
         <div class="track-menu-inner">
 
@@ -323,15 +263,14 @@
 
     const queue = $('.queue', container);
     const info = $('.track-info', container);
-    const fullSongToggle = $('.full-song-toggle', container);
 
     const menu = $('.track-menu', container);
     const closeMenu = $('.close-menu', container);
     const trackList = $('.track-list', container);
 
-    /*
-     * SAVE STATE
-     */
+    /* =========================
+       STATE HELPERS
+       ========================= */
 
     function saveState() {
       localStorage.setItem(
@@ -341,7 +280,11 @@
 
       localStorage.setItem(
         STORAGE.time,
-        String(audio.currentTime || 0)
+        String(
+          Number.isFinite(audio.currentTime)
+            ? audio.currentTime
+            : 0
+        )
       );
 
       localStorage.setItem(
@@ -350,15 +293,10 @@
       );
     }
 
-    /*
-     * PLAY BUTTON
-     */
-
     function updatePlayButton() {
       const playing = !audio.paused;
 
-      play.textContent =
-        playing ? 'Ⅱ' : '▶';
+      play.textContent = playing ? 'Ⅱ' : '▶';
 
       play.setAttribute(
         'aria-label',
@@ -366,9 +304,55 @@
       );
     }
 
-    /*
-     * LOAD TRACK
-     */
+    /* =========================
+       PLAYLIST
+       ========================= */
+
+    function renderPlaylist() {
+      trackList.innerHTML = '';
+
+      tracks.forEach((track, trackIndex) => {
+        const button = document.createElement('button');
+
+        button.type = 'button';
+        button.className =
+          `track-item ${
+            trackIndex === index ? 'active' : ''
+          }`;
+
+        button.innerHTML = `
+          <span>
+            <b>${track.title || 'Untitled'}</b>
+            <small>${track.artist || ''}</small>
+          </span>
+        `;
+
+        button.addEventListener('click', () => {
+          loadTrack(trackIndex, true);
+          closePlaylist();
+        });
+
+        trackList.appendChild(button);
+      });
+    }
+
+    function openPlaylist() {
+      menu.classList.add('open');
+      menu.setAttribute('aria-hidden', 'false');
+    }
+
+    function closePlaylist() {
+      menu.classList.remove('open');
+      menu.setAttribute('aria-hidden', 'true');
+    }
+
+    queue.addEventListener('click', openPlaylist);
+    info.addEventListener('click', openPlaylist);
+    closeMenu.addEventListener('click', closePlaylist);
+
+    /* =========================
+       LOAD TRACK
+       ========================= */
 
     function loadTrack(trackIndex, autoplay = false) {
       index =
@@ -379,7 +363,7 @@
 
       if (!track || !track.src) {
         console.error(
-          'Music player: invalid track',
+          'Invalid music track:',
           track
         );
         return;
@@ -394,45 +378,56 @@
         track.artist || 'Unknown artist';
 
       if (track.art) {
-        art.src = track.art;
+        art.src = new URL(
+          track.art,
+          document.baseURI
+        ).href;
+      } else {
+        art.removeAttribute('src');
       }
 
       /*
-       * IMPORTANT:
-       * Resolve the path relative to the current
-       * GitHub Pages URL.
+       * GitHub Pages-safe URL.
        */
+      const source = new URL(
+        track.src,
+        document.baseURI
+      ).href;
 
-      audio.src = new URL(
-  track.src,
-  document.baseURI
-).href;
+      console.log(
+        'Loading music:',
+        source
+      );
 
+      audio.src = source;
       audio.load();
-
-      const clip = computeClip(track);
-
-      clipStart = clip.start;
-      clipEnd = snippetMode ? clip.end : null;
-
-      resumeTime = snippetMode ? clipStart : 0;
-
-      if (
-        index === Number(
-          localStorage.getItem(STORAGE.track)
-        )
-      ) {
-        const savedTime =
-          Number(localStorage.getItem(STORAGE.time));
-
-        if (Number.isFinite(savedTime)) {
-          resumeTime = savedTime;
-        }
-      }
 
       progress.value = 0;
       currentTime.textContent = '0:00';
       duration.textContent = '0:00';
+
+      /*
+       * Only restore saved position for the
+       * previously selected track.
+       */
+      if (
+        index ===
+        Number(
+          localStorage.getItem(STORAGE.track)
+        )
+      ) {
+        savedTime =
+          Number(
+            localStorage.getItem(STORAGE.time)
+          ) || 0;
+      } else {
+        savedTime = 0;
+      }
+
+      localStorage.setItem(
+        STORAGE.track,
+        String(index)
+      );
 
       updatePlayButton();
       renderPlaylist();
@@ -440,54 +435,39 @@
       if (autoplay) {
         playTrack();
       }
-
-      localStorage.setItem(
-        STORAGE.track,
-        String(index)
-      );
     }
 
-    /*
-     * PLAY
-     */
+    /* =========================
+       PLAY
+       ========================= */
 
     async function playTrack() {
       try {
+        /*
+         * Never seek to a hard-coded snippet position.
+         * This makes the player reliable on mobile.
+         */
         if (
           Number.isFinite(audio.duration) &&
           audio.duration > 0
         ) {
-          if (snippetMode && clipEnd == null) {
-            clipEnd = audio.duration;
+          if (
+            !Number.isFinite(savedTime) ||
+            savedTime < 0 ||
+            savedTime >= audio.duration
+          ) {
+            savedTime = 0;
           }
 
-          if (clipEnd != null) {
-            clipEnd = Math.min(clipEnd, audio.duration);
-          }
-
-          const ceiling =
-            (snippetMode && clipEnd != null ? clipEnd : audio.duration) - 0.2;
-
-          audio.currentTime =
-            Math.min(
-              Math.max(resumeTime, snippetMode ? clipStart : 0),
-              Math.max(0, ceiling)
-            );
+          audio.currentTime = savedTime;
         }
 
         await audio.play();
 
         updatePlayButton();
-
         saveState();
 
       } catch (error) {
-
-        /*
-         * Browser blocked playback or the
-         * audio source failed.
-         */
-
         console.error(
           'Music playback failed:',
           error
@@ -497,43 +477,31 @@
       }
     }
 
-    /*
-     * PLAY / PAUSE
-     */
+    /* =========================
+       CONTROLS
+       ========================= */
 
     play.addEventListener('click', () => {
-
       if (audio.paused) {
         playTrack();
       } else {
         audio.pause();
-        saveState();
       }
-
     });
-
-    /*
-     * PREVIOUS
-     */
 
     prev.addEventListener('click', () => {
       loadTrack(index - 1, true);
     });
 
-    /*
-     * NEXT
-     */
-
     next.addEventListener('click', () => {
       loadTrack(index + 1, true);
     });
 
-    /*
-     * PROGRESS BAR
-     */
+    /* =========================
+       PROGRESS
+       ========================= */
 
     progress.addEventListener('input', () => {
-
       if (
         !Number.isFinite(audio.duration) ||
         audio.duration <= 0
@@ -541,40 +509,54 @@
         return;
       }
 
-      if (snippetMode && clipEnd != null) {
+      audio.currentTime =
+        (Number(progress.value) / 100) *
+        audio.duration;
 
-        const clipLength = clipEnd - clipStart;
-
-        audio.currentTime =
-          clipStart +
-          (Number(progress.value) / 100) * clipLength;
-
-        currentTime.textContent =
-          formatTime(audio.currentTime - clipStart);
-
-      } else {
-
-        audio.currentTime =
-          (Number(progress.value) / 100) *
-          audio.duration;
-
-        currentTime.textContent =
-          formatTime(audio.currentTime);
-
-      }
+      savedTime = audio.currentTime;
+      currentTime.textContent =
+        formatTime(audio.currentTime);
 
       saveState();
-
     });
 
-    /*
-     * AUDIO EVENTS
-     */
+    /* =========================
+       AUDIO EVENTS
+       ========================= */
 
     audio.addEventListener(
       'loadedmetadata',
       () => {
+        if (
+          !Number.isFinite(audio.duration) ||
+          audio.duration <= 0
+        ) {
+          console.error(
+            'Music has no valid duration:',
+            audio.src
+          );
+          return;
+        }
 
+        duration.textContent =
+          formatTime(audio.duration);
+
+        if (
+          Number.isFinite(savedTime) &&
+          savedTime >= 0 &&
+          savedTime < audio.duration
+        ) {
+          audio.currentTime = savedTime;
+        } else {
+          savedTime = 0;
+          audio.currentTime = 0;
+        }
+      }
+    );
+
+    audio.addEventListener(
+      'timeupdate',
+      () => {
         if (
           !Number.isFinite(audio.duration) ||
           audio.duration <= 0
@@ -582,82 +564,15 @@
           return;
         }
 
-        if (snippetMode && clipEnd == null) {
-          clipEnd = audio.duration;
-        }
+        progress.value =
+          (audio.currentTime /
+            audio.duration) *
+          100;
 
-        if (clipEnd != null) {
-          clipEnd = Math.min(clipEnd, audio.duration);
-        }
+        currentTime.textContent =
+          formatTime(audio.currentTime);
 
-        const activeEnd =
-          (snippetMode && clipEnd != null) ? clipEnd : audio.duration;
-
-        duration.textContent =
-          formatTime(
-            (snippetMode && clipEnd != null)
-              ? activeEnd - clipStart
-              : audio.duration
-          );
-
-        audio.currentTime =
-          Math.min(
-            Math.max(resumeTime, snippetMode ? clipStart : 0),
-            Math.max(0, activeEnd - 0.2)
-          );
-
-      }
-    );
-
-    audio.addEventListener(
-      'timeupdate',
-      () => {
-
-        // Loop back to the start of the clip once we
-        // hit the end of the highlighted snippet.
-        if (
-          snippetMode &&
-          clipEnd != null &&
-          audio.currentTime >= clipEnd - 0.05
-        ) {
-          audio.currentTime = clipStart;
-          return;
-        }
-
-        if (
-          Number.isFinite(audio.duration) &&
-          audio.duration > 0
-        ) {
-
-          if (snippetMode && clipEnd != null) {
-
-            const clipLength = clipEnd - clipStart;
-            const clipPosition =
-              Math.max(0, audio.currentTime - clipStart);
-
-            progress.value =
-              clipLength > 0
-                ? (clipPosition / clipLength) * 100
-                : 0;
-
-            currentTime.textContent =
-              formatTime(clipPosition);
-
-          } else {
-
-            progress.value =
-              (
-                audio.currentTime /
-                audio.duration
-              ) * 100;
-
-            currentTime.textContent =
-              formatTime(audio.currentTime);
-
-          }
-
-        }
-
+        savedTime = audio.currentTime;
       }
     );
 
@@ -674,260 +589,95 @@
       }
     );
 
-    /*
-     * AUTOMATICALLY PLAY NEXT SONG
-     */
-
     audio.addEventListener(
       'ended',
       () => {
+        saveState();
 
-        // Snippet mode loops before the real file end,
-        // but just in case it's ever reached, loop
-        // instead of skipping to the next track.
-        if (snippetMode && clipEnd != null) {
-          audio.currentTime = clipStart;
-          audio.play().catch(() => {});
-          return;
-        }
-
+        /*
+         * Move to the next song.
+         */
         loadTrack(index + 1, true);
-
       }
     );
 
-    /*
-     * ERROR REPORTING
-     */
-
-    audio.addEventListener(
-      'error',
-      () => {
-
-        console.error(
-          'Music file could not be loaded:',
-          audio.currentSrc ||
-          audio.src,
-          audio.error
-        );
-
-        updatePlayButton();
-
-      }
-    );
-
-    /*
-     * PLAYLIST
-     */
-
-    function renderPlaylist() {
-
-      trackList.innerHTML =
-        tracks.map((track, i) => `
-          <button
-            type="button"
-            class="track-option ${
-              i === index ? 'selected' : ''
-            }"
-            data-index="${i}"
-          >
-
-            <img
-              src="${track.art || ''}"
-              alt=""
-            >
-
-            <span>
-              <b>${track.title || 'Untitled'}</b>
-              <small>${track.artist || ''}</small>
-            </span>
-
-          </button>
-        `).join('');
-
-      trackList
-        .querySelectorAll('.track-option')
-        .forEach(button => {
-
-          button.addEventListener(
-            'click',
-            () => {
-
-              const selected =
-                Number(
-                  button.dataset.index
-                );
-
-              loadTrack(selected, true);
-
-              closePlaylist();
-
-            }
-          );
-
-        });
-
-    }
-
-    /*
-     * PLAYLIST OPEN / CLOSE
-     */
-
-    function openPlaylist() {
-      renderPlaylist();
-
-      menu.classList.add('open');
-
-      menu.setAttribute(
-        'aria-hidden',
-        'false'
-      );
-    }
-
-    function closePlaylist() {
-      menu.classList.remove('open');
-
-      menu.setAttribute(
-        'aria-hidden',
-        'true'
-      );
-    }
-
-    /*
-     * FULL SONG / SNIPPET TOGGLE
-     */
-
-    function updateToggleLabel() {
-      fullSongToggle.textContent =
-        snippetMode ? 'Play full song' : 'Play snippet';
-    }
-
-    updateToggleLabel();
-
-    fullSongToggle.addEventListener('click', () => {
-
-      snippetMode = !snippetMode;
-
-      localStorage.setItem(
-        STORAGE.mode,
-        snippetMode ? 'snippet' : 'full'
-      );
-
-      updateToggleLabel();
-
-      const track = tracks[index];
-      const clip = computeClip(track);
-
-      clipStart = clip.start;
-      clipEnd = snippetMode ? clip.end : null;
-
-      if (clipEnd == null && snippetMode) {
-        clipEnd = audio.duration;
-      }
-
-      const wasPlaying = !audio.paused;
-
-      if (
-        Number.isFinite(audio.duration) &&
-        audio.duration > 0
-      ) {
-        const target = snippetMode ? clipStart : 0;
-
-        audio.currentTime =
-          Math.min(target, Math.max(0, audio.duration - 0.2));
-      }
-
-      if (wasPlaying) {
-        audio.play().catch(() => {});
-      }
-
-      saveState();
-
-    });
-
-    queue.addEventListener(
-      'click',
-      openPlaylist
-    );
-
-    info.addEventListener(
-      'click',
-      openPlaylist
-    );
-
-    closeMenu.addEventListener(
-      'click',
-      closePlaylist
-    );
-
-    menu.addEventListener(
-      'click',
-      event => {
-
-        if (event.target === menu) {
-          closePlaylist();
-        }
-
-      }
-    );
-
-    /*
-     * SAVE BEFORE LEAVING
-     */
-
-    window.addEventListener(
-      'beforeunload',
-      saveState
-    );
-
-    /*
-     * INITIALISE
-     *
-     * IMPORTANT:
-     * No autoplay here — the very first
-     * load of the site still needs a user
-     * gesture before audio can play. Every
-     * navigation after this is handled by
-     * the router, so this only ever runs once.
-     */
+    /* =========================
+       INITIALIZE
+       ========================= */
 
     loadTrack(index, false);
   }
 
-  /* ================================
-     PAGE-SWAP HOOK
-     Called by router.js after it swaps
-     #app-main content. Re-runs only the
-     chrome bits — never the music player.
-     ================================ */
+  /* =========================
+     ROUTER HOOK
+     ========================= */
 
-  window.SakshiSite = window.SakshiSite || {};
-
-  window.SakshiSite.onPageSwap = () => {
+  function updateAfterRoute() {
     updatePageChrome();
     initYear();
+  }
 
-    const menu = $('.site-nav ul');
-    const toggle = $('.nav-toggle');
+  /* =========================
+     START
+     ========================= */
 
-    if (menu) menu.classList.remove('open');
-    if (toggle) toggle.setAttribute('aria-expanded', 'false');
-  };
+  function init() {
+    initNavToggle();
+    updatePageChrome();
+    initYear();
+    initMusicPlayer();
 
-  /* ================================
-     START EVERYTHING
-     ================================ */
+    window.addEventListener(
+      'popstate',
+      updateAfterRoute
+    );
 
-  document.addEventListener(
-    'DOMContentLoaded',
-    () => {
+    document.addEventListener(
+      'click',
+      event => {
+        const link =
+          event.target.closest(
+            'a[href]'
+          );
 
-      initNavToggle();
-      updatePageChrome();
-      initYear();
-      initMusicPlayer();
+        if (!link) return;
 
-    }
-  );
+        const href =
+          link.getAttribute('href');
+
+        if (
+          !href ||
+          href.startsWith('#') ||
+          href.startsWith('http') ||
+          href.startsWith('mailto:')
+        ) {
+          return;
+        }
+
+        if (
+          PAGES.some(
+            page => page[0] === href
+          )
+        ) {
+          setTimeout(
+            updateAfterRoute,
+            0
+          );
+        }
+      }
+    );
+  }
+
+  if (
+    document.readyState === 'loading'
+  ) {
+    document.addEventListener(
+      'DOMContentLoaded',
+      init,
+      { once: true }
+    );
+  } else {
+    init();
+  }
 
 })();
